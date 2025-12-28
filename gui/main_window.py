@@ -1,0 +1,244 @@
+"""
+Main Window for the RFID Agent
+Shows status and scan results
+"""
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QFrame, QSpacerItem, QSizePolicy,
+    QSystemTrayIcon, QMenu
+)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QAction
+
+from config import clear_credentials
+
+
+class MainWindow(QMainWindow):
+    """Main window showing agent status"""
+    
+    # Signal to request logout
+    logout_requested = pyqtSignal()
+    
+    def __init__(self, credentials: dict):
+        super().__init__()
+        self.credentials = credentials
+        self.is_scanning = False
+        self.current_scan_id = None
+        self.init_ui()
+        self.setup_status_timer()
+    
+    def init_ui(self):
+        """Initialize the UI"""
+        self.setWindowTitle(f'BarberKiosk Agent - {self.credentials.get("shop_name", "")}')
+        self.setFixedSize(500, 600)
+        self.setStyleSheet(self._get_stylesheet())
+        
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        
+        title_label = QLabel('🔌 BarberKiosk Agent')
+        title_label.setFont(QFont('Arial', 20, QFont.Weight.Bold))
+        title_label.setStyleSheet('color: #1e293b;')
+        header_layout.addWidget(title_label)
+        
+        header_layout.addStretch()
+        
+        # Logout button
+        logout_btn = QPushButton('خروج')
+        logout_btn.setObjectName('logoutButton')
+        logout_btn.clicked.connect(self.on_logout_clicked)
+        header_layout.addWidget(logout_btn)
+        
+        layout.addLayout(header_layout)
+        
+        # Info cards
+        info_frame = QFrame()
+        info_frame.setObjectName('infoFrame')
+        info_layout = QVBoxLayout(info_frame)
+        info_layout.setSpacing(10)
+        
+        # Shop name
+        shop_layout = QHBoxLayout()
+        shop_layout.addWidget(QLabel('🏪 آرایشگاه:'))
+        self.shop_label = QLabel(self.credentials.get('shop_name', '-'))
+        self.shop_label.setFont(QFont('Arial', 12, QFont.Weight.Bold))
+        shop_layout.addWidget(self.shop_label)
+        shop_layout.addStretch()
+        info_layout.addLayout(shop_layout)
+        
+        # Terminal name
+        terminal_layout = QHBoxLayout()
+        terminal_layout.addWidget(QLabel('📟 ترمینال:'))
+        self.terminal_label = QLabel(self.credentials.get('terminal_name', '-'))
+        self.terminal_label.setFont(QFont('Arial', 12, QFont.Weight.Bold))
+        terminal_layout.addWidget(self.terminal_label)
+        terminal_layout.addStretch()
+        info_layout.addLayout(terminal_layout)
+        
+        # Terminal ID
+        id_layout = QHBoxLayout()
+        id_layout.addWidget(QLabel('🔢 شناسه:'))
+        self.id_label = QLabel(str(self.credentials.get('terminal_id', '-')))
+        id_layout.addWidget(self.id_label)
+        id_layout.addStretch()
+        info_layout.addLayout(id_layout)
+        
+        layout.addWidget(info_frame)
+        
+        # Status section
+        status_frame = QFrame()
+        status_frame.setObjectName('statusFrame')
+        status_layout = QVBoxLayout(status_frame)
+        status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Connection status
+        self.connection_label = QLabel('🟢 متصل به سرور')
+        self.connection_label.setFont(QFont('Arial', 14))
+        self.connection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self.connection_label)
+        
+        # Scan status indicator
+        self.status_icon = QLabel('📡')
+        self.status_icon.setFont(QFont('Arial', 64))
+        self.status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self.status_icon)
+        
+        self.status_label = QLabel('در انتظار درخواست اسکن...')
+        self.status_label.setFont(QFont('Arial', 16, QFont.Weight.Bold))
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet('color: #64748b;')
+        status_layout.addWidget(self.status_label)
+        
+        # Last scan info
+        self.last_scan_label = QLabel('')
+        self.last_scan_label.setFont(QFont('Arial', 11))
+        self.last_scan_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.last_scan_label.setStyleSheet('color: #94a3b8;')
+        status_layout.addWidget(self.last_scan_label)
+        
+        layout.addWidget(status_frame)
+        
+        # Spacer
+        layout.addStretch()
+        
+        # Footer
+        footer_label = QLabel('برای اسکن کارت، درخواست را از طریق وب ارسال کنید')
+        footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        footer_label.setStyleSheet('color: #94a3b8; font-size: 12px;')
+        layout.addWidget(footer_label)
+    
+    def _get_stylesheet(self) -> str:
+        """Return the stylesheet"""
+        return '''
+            QMainWindow {
+                background-color: #f8fafc;
+            }
+            QLabel {
+                color: #334155;
+            }
+            #infoFrame {
+                background-color: white;
+                border-radius: 12px;
+                padding: 15px;
+                border: 1px solid #e2e8f0;
+            }
+            #statusFrame {
+                background-color: white;
+                border-radius: 16px;
+                padding: 30px;
+                border: 1px solid #e2e8f0;
+                min-height: 200px;
+            }
+            #logoutButton {
+                background-color: #f1f5f9;
+                color: #475569;
+                padding: 8px 16px;
+                font-size: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+            }
+            #logoutButton:hover {
+                background-color: #e2e8f0;
+            }
+        '''
+    
+    def setup_status_timer(self):
+        """Setup timer for status updates"""
+        self.status_timer = QTimer(self)
+        self.status_timer.timeout.connect(self.update_connection_status)
+        self.status_timer.start(5000)  # Every 5 seconds
+        
+        # Send initial heartbeat immediately
+        self.update_connection_status()
+    
+    def update_connection_status(self):
+        """Update connection status"""
+        from services.auth_service import AuthService
+        auth = AuthService()
+        is_connected = auth.heartbeat()
+        
+        if is_connected:
+            self.connection_label.setText('🟢 متصل به سرور')
+            self.connection_label.setStyleSheet('color: #16a34a;')
+        else:
+            self.connection_label.setText('🔴 ارتباط قطع شده')
+            self.connection_label.setStyleSheet('color: #dc2626;')
+    
+    @pyqtSlot(str)
+    def on_scan_requested(self, scan_id: str):
+        """Called when a scan request is received"""
+        self.is_scanning = True
+        self.current_scan_id = scan_id
+        self.status_icon.setText('📶')
+        self.status_label.setText('لطفاً کارت را روی اسکنر قرار دهید')
+        self.status_label.setStyleSheet('color: #2563eb; font-size: 16px;')
+    
+    @pyqtSlot(str, str)
+    def on_scan_completed(self, scan_id: str, card_id: str):
+        """Called when scan is completed successfully"""
+        self.is_scanning = False
+        self.status_icon.setText('✅')
+        self.status_label.setText('کارت اسکن شد!')
+        self.status_label.setStyleSheet('color: #16a34a; font-size: 16px;')
+        self.last_scan_label.setText(f'آخرین کارت: {card_id[:12]}...')
+        
+        # Reset after 3 seconds
+        QTimer.singleShot(3000, self.reset_status)
+    
+    @pyqtSlot(str)
+    def on_scan_error(self, error: str):
+        """Called when scan fails"""
+        self.is_scanning = False
+        self.status_icon.setText('❌')
+        self.status_label.setText(f'خطا: {error}')
+        self.status_label.setStyleSheet('color: #dc2626; font-size: 14px;')
+        
+        # Reset after 3 seconds
+        QTimer.singleShot(3000, self.reset_status)
+    
+    def reset_status(self):
+        """Reset status to idle"""
+        self.status_icon.setText('📡')
+        self.status_label.setText('در انتظار درخواست اسکن...')
+        self.status_label.setStyleSheet('color: #64748b;')
+    
+    def on_logout_clicked(self):
+        """Handle logout"""
+        clear_credentials()
+        self.logout_requested.emit()
+        self.close()
+    
+    def closeEvent(self, event):
+        """Handle window close"""
+        self.status_timer.stop()
+        event.accept()
+
