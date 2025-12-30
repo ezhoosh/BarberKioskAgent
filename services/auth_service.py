@@ -4,7 +4,7 @@ Handles registration and authentication with the backend
 """
 import requests
 import logging
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List, Any
 from config import load_config, get_device_id, save_credentials, load_credentials, fetch_config_from_backend, save_config
 
 logger = logging.getLogger(__name__)
@@ -17,8 +17,35 @@ class AuthService:
         self.config = load_config()
         self.backend_url = self.config['backend_url']
         self.device_id = get_device_id()
+
+    def owner_login(self, phone: str, password: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Login as shop owner to fetch owned shops list.
+        Uses backend /api/auth/login/ which returns {access,refresh,user,shops}.
+        """
+        url = f"{self.backend_url}/api/auth/login/"
+        payload = {"phone": phone, "password": password}
+        try:
+            response = requests.post(url, json=payload, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                shops = data.get("shops", []) or []
+                return True, "ورود موفقیت‌آمیز بود", {"shops": shops, "user": data.get("user")}
+            msg = None
+            try:
+                body = response.json()
+                msg = body.get("message") or body.get("detail") or body.get("error")
+            except Exception:
+                msg = None
+            return False, (msg or "خطا در ورود"), None
+        except requests.exceptions.ConnectionError:
+            return False, 'ارتباط با سرور برقرار نشد', None
+        except requests.exceptions.Timeout:
+            return False, 'زمان اتصال به سرور به پایان رسید', None
+        except Exception as e:
+            return False, f'خطا: {str(e)}', None
     
-    def register(self, phone: str, password: str, device_name: str = 'RFID Scanner') -> Tuple[bool, str, Optional[Dict]]:
+    def register(self, phone: str, password: str, device_name: str = 'RFID Scanner', shop_id: Optional[int] = None) -> Tuple[bool, str, Optional[Dict]]:
         """
         Register the terminal with the backend.
         
@@ -38,6 +65,8 @@ class AuthService:
             'device_id': self.device_id,
             'device_name': device_name
         }
+        if shop_id is not None:
+            payload['shop_id'] = shop_id
         
         try:
             response = requests.post(url, json=payload, timeout=30)
