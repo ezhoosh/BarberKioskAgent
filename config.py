@@ -1,7 +1,6 @@
 """
 Configuration for the RFID Agent
 """
-import os
 import json
 import logging
 from pathlib import Path
@@ -16,7 +15,6 @@ DEFAULT_CONFIG = {
     'rabbitmq_port': 5672,
     'rabbitmq_user': 'barber',
     'rabbitmq_pass': 'barber123',
-    'rfid_port': '/dev/ttyUSB0',
     'rfid_baudrate': 9600,
 }
 
@@ -94,7 +92,7 @@ def get_device_id() -> str:
 
 def fetch_config_from_backend(backend_url: str) -> dict:
     """
-    Fetch configuration from backend API.
+    Fetch configuration from backend API (unauthenticated endpoint).
     Returns RabbitMQ settings and other config needed by the agent.
     
     Args:
@@ -125,8 +123,7 @@ def fetch_config_from_backend(backend_url: str) -> dict:
             'rabbitmq_user': rabbitmq_config.get('user', 'barber'),
             'rabbitmq_pass': rabbitmq_config.get('password', 'barber123'),
             'rabbitmq_vhost': rabbitmq_config.get('vhost', '/'),
-            # Keep local settings
-            'rfid_port': load_config().get('rfid_port', '/dev/ttyUSB0'),
+            # Keep local baudrate setting (will be overridden by backend if device assigned)
             'rfid_baudrate': load_config().get('rfid_baudrate', 9600),
         }
         
@@ -139,6 +136,75 @@ def fetch_config_from_backend(backend_url: str) -> dict:
         return load_config()
     except Exception as e:
         logger.exception(f"Error fetching config from backend: {e}")
+        logger.warning("Using default/local config")
+        return load_config()
+
+
+def fetch_terminal_config_from_backend(backend_url: str, terminal_id: int, auth_token: str) -> dict:
+    """
+    Fetch authenticated terminal-specific configuration from backend API.
+    Returns RabbitMQ settings and assigned RFID device identity.
+    
+    Args:
+        backend_url: Base URL of the backend (e.g., 'http://localhost:8000')
+        terminal_id: Terminal ID
+        auth_token: Terminal authentication token
+    
+    Returns:
+        dict: Configuration dictionary with RabbitMQ settings and RFID device identity
+    """
+    try:
+        # Ensure URL doesn't have trailing slash
+        base_url = backend_url.rstrip('/')
+        api_url = f"{base_url}/api/terminals/agent-config/"
+        
+        payload = {
+            'terminal_id': terminal_id,
+            'auth_token': auth_token,
+        }
+        
+        logger.info(f"Fetching terminal config from backend: {api_url}")
+        response = requests.post(api_url, json=payload, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Extract RabbitMQ config
+        rabbitmq_config = data.get('rabbitmq', {})
+        backend_url_from_response = data.get('backend_url', backend_url)
+        
+        config = {
+            'backend_url': backend_url_from_response,
+            'rabbitmq_host': rabbitmq_config.get('host', 'localhost'),
+            'rabbitmq_port': rabbitmq_config.get('port', 5672),
+            'rabbitmq_user': rabbitmq_config.get('user', 'barber'),
+            'rabbitmq_pass': rabbitmq_config.get('password', 'barber123'),
+            'rabbitmq_vhost': rabbitmq_config.get('vhost', '/'),
+        }
+        
+        # Add RFID device identity if provided
+        rfid_device = data.get('rfid_device')
+        if rfid_device:
+            config['rfid_device'] = rfid_device
+            logger.info(
+                f"RFID device identity received: "
+                f"VID={rfid_device.get('vendor_id')}, PID={rfid_device.get('product_id')}, "
+                f"DeviceSerialID={rfid_device.get('device_serial_id')}, LabelSerial={rfid_device.get('serial_number')}"
+            )
+        else:
+            logger.info("No RFID device assigned to this terminal - port auto-detection will not work")
+            # Keep local baudrate setting
+            config['rfid_baudrate'] = load_config().get('rfid_baudrate', 9600)
+        
+        logger.info("Successfully fetched terminal config from backend")
+        return config
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Failed to fetch terminal config from backend: {e}")
+        logger.warning("Using default/local config")
+        return load_config()
+    except Exception as e:
+        logger.exception(f"Error fetching terminal config from backend: {e}")
         logger.warning("Using default/local config")
         return load_config()
 

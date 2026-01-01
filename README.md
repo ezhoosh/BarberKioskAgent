@@ -22,7 +22,6 @@ The BarberKiosk Agent is a PyQt6-based desktop application that:
 - Serial port communication with RFID hardware
 - Automatic card detection and UID reading
 - Support for custom RFID protocols
-- Mock reader for testing without hardware
 
 ### 🐰 RabbitMQ Integration
 - Real-time scan request consumption from backend
@@ -95,10 +94,31 @@ BarberKioskAgent/
      "rabbitmq_port": 5672,
      "rabbitmq_user": "barber",
      "rabbitmq_pass": "barber123",
-     "rfid_port": "/dev/ttyUSB0",
      "rfid_baudrate": 9600
    }
    ```
+
+## macOS Installer (DMG)
+
+This project ships as a macOS `.app` bundle and can be packaged into a simple drag-and-drop **DMG**.
+
+1. Build the `.app`:
+
+```bash
+cd BarberKioskAgent
+pyinstaller BarberAgent.spec
+```
+
+2. Create the DMG:
+
+```bash
+./scripts/build_macos_dmg.sh
+```
+
+Output:
+- `dist/BarberAgent.dmg`
+
+The DMG opens with a standard “drag to Applications” window (app icon + Applications shortcut).
 
 ## Usage
 

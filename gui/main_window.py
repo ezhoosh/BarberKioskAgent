@@ -3,14 +3,30 @@ Main Window for the RFID Agent
 Shows status and scan results
 """
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QFrame, QSpacerItem, QSizePolicy,
-    QSystemTrayIcon, QMenu
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QAction
+from PyQt6.QtGui import QFont, QColor
 
 from config import clear_credentials
+
+
+def _app_font(size: int, weight: QFont.Weight | None = None) -> QFont:
+    """Create a font using the application's default family (e.g., YekanBakh) with given size/weight."""
+    family = QApplication.instance().font().family() if QApplication.instance() else ""
+    f = QFont(family, size)
+    if weight is not None:
+        f.setWeight(weight)
+    return f
+
+
+def _apply_shadow(widget: QWidget):
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(28)
+    effect.setOffset(0, 10)
+    effect.setColor(QColor(2, 6, 23, 35))
+    widget.setGraphicsEffect(effect)
 
 
 class MainWindow(QMainWindow):
@@ -30,7 +46,8 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Initialize the UI"""
         self.setWindowTitle(f'BarberKiosk Agent - {self.credentials.get("shop_name", "")}')
-        self.setFixedSize(500, 600)
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.setFixedSize(520, 650)
         self.setStyleSheet(self._get_stylesheet())
         
         # Central widget
@@ -39,15 +56,15 @@ class MainWindow(QMainWindow):
         
         # Main layout
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(16)
         
         # Header
         header_layout = QHBoxLayout()
         
-        title_label = QLabel('🔌 BarberKiosk Agent')
-        title_label.setFont(QFont('Arial', 20, QFont.Weight.Bold))
-        title_label.setStyleSheet('color: #1e293b;')
+        title_label = QLabel('BarberKioskAgent')
+        title_label.setFont(_app_font(18, QFont.Weight.Bold))
+        title_label.setStyleSheet('color: #0f172a;')
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
@@ -63,6 +80,7 @@ class MainWindow(QMainWindow):
         # Info cards
         info_frame = QFrame()
         info_frame.setObjectName('infoFrame')
+        _apply_shadow(info_frame)
         info_layout = QVBoxLayout(info_frame)
         info_layout.setSpacing(10)
         
@@ -70,7 +88,7 @@ class MainWindow(QMainWindow):
         shop_layout = QHBoxLayout()
         shop_layout.addWidget(QLabel('🏪 آرایشگاه:'))
         self.shop_label = QLabel(self.credentials.get('shop_name', '-'))
-        self.shop_label.setFont(QFont('Arial', 12, QFont.Weight.Bold))
+        self.shop_label.setFont(_app_font(12, QFont.Weight.Bold))
         shop_layout.addWidget(self.shop_label)
         shop_layout.addStretch()
         info_layout.addLayout(shop_layout)
@@ -79,7 +97,7 @@ class MainWindow(QMainWindow):
         terminal_layout = QHBoxLayout()
         terminal_layout.addWidget(QLabel('📟 ترمینال:'))
         self.terminal_label = QLabel(self.credentials.get('terminal_name', '-'))
-        self.terminal_label.setFont(QFont('Arial', 12, QFont.Weight.Bold))
+        self.terminal_label.setFont(_app_font(12, QFont.Weight.Bold))
         terminal_layout.addWidget(self.terminal_label)
         terminal_layout.addStretch()
         info_layout.addLayout(terminal_layout)
@@ -91,36 +109,46 @@ class MainWindow(QMainWindow):
         id_layout.addWidget(self.id_label)
         id_layout.addStretch()
         info_layout.addLayout(id_layout)
+
+        # Device status (RFID)
+        rfid_layout = QHBoxLayout()
+        rfid_layout.addWidget(QLabel('📶 وضعیت دستگاه:'))
+        self.rfid_label = QLabel('🟡 در حال بررسی...')
+        self.rfid_label.setStyleSheet('color: #d97706;')  # amber
+        rfid_layout.addWidget(self.rfid_label)
+        rfid_layout.addStretch()
+        info_layout.addLayout(rfid_layout)
         
         layout.addWidget(info_frame)
         
         # Status section
         status_frame = QFrame()
         status_frame.setObjectName('statusFrame')
+        _apply_shadow(status_frame)
         status_layout = QVBoxLayout(status_frame)
         status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Connection status
-        self.connection_label = QLabel('🟢 متصل به سرور')
-        self.connection_label.setFont(QFont('Arial', 14))
+        self.connection_label = QLabel('در حال بررسی ارتباط با سرور…')
+        self.connection_label.setFont(_app_font(14))
         self.connection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_layout.addWidget(self.connection_label)
         
         # Scan status indicator
         self.status_icon = QLabel('📡')
-        self.status_icon.setFont(QFont('Arial', 64))
+        self.status_icon.setFont(_app_font(64))
         self.status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_layout.addWidget(self.status_icon)
         
         self.status_label = QLabel('در انتظار درخواست اسکن...')
-        self.status_label.setFont(QFont('Arial', 16, QFont.Weight.Bold))
+        self.status_label.setFont(_app_font(16, QFont.Weight.Bold))
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet('color: #64748b;')
         status_layout.addWidget(self.status_label)
         
         # Last scan info
         self.last_scan_label = QLabel('')
-        self.last_scan_label.setFont(QFont('Arial', 11))
+        self.last_scan_label.setFont(_app_font(11))
         self.last_scan_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.last_scan_label.setStyleSheet('color: #94a3b8;')
         status_layout.addWidget(self.last_scan_label)
@@ -138,36 +166,38 @@ class MainWindow(QMainWindow):
     
     def _get_stylesheet(self) -> str:
         """Return the stylesheet"""
-        return '''
+        family = QApplication.instance().font().family() if QApplication.instance() else ""
+        header = f'* {{ font-family: "{family}"; }}\n'
+        return header + '''
             QMainWindow {
-                background-color: #f8fafc;
+                background-color: #f6f7fb;
             }
             QLabel {
                 color: #334155;
             }
             #infoFrame {
                 background-color: white;
-                border-radius: 12px;
-                padding: 15px;
-                border: 1px solid #e2e8f0;
+                border-radius: 16px;
+                padding: 16px;
+                border: 1px solid #e8edf5;
             }
             #statusFrame {
                 background-color: white;
                 border-radius: 16px;
                 padding: 30px;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e8edf5;
                 min-height: 200px;
             }
             #logoutButton {
-                background-color: #f1f5f9;
-                color: #475569;
-                padding: 8px 16px;
+                background-color: white;
+                color: #0f172a;
+                padding: 10px 14px;
                 font-size: 12px;
                 border: 1px solid #e2e8f0;
-                border-radius: 6px;
+                border-radius: 10px;
             }
             #logoutButton:hover {
-                background-color: #e2e8f0;
+                background-color: #f1f5f9;
             }
         '''
     
@@ -187,11 +217,21 @@ class MainWindow(QMainWindow):
         is_connected = auth.heartbeat()
         
         if is_connected:
-            self.connection_label.setText('🟢 متصل به سرور')
-            self.connection_label.setStyleSheet('color: #16a34a;')
+            self.connection_label.setText('متصل به سرور')
+            self.connection_label.setStyleSheet('color: #166534; background:#DCFCE7; padding:8px 12px; border-radius:999px;')
         else:
-            self.connection_label.setText('🔴 ارتباط قطع شده')
-            self.connection_label.setStyleSheet('color: #dc2626;')
+            self.connection_label.setText('ارتباط با سرور قطع است')
+            self.connection_label.setStyleSheet('color: #991B1B; background:#FEE2E2; padding:8px 12px; border-radius:999px;')
+
+    @pyqtSlot(bool, str)
+    def on_rfid_status(self, connected: bool, message: str):
+        """Update RFID connection status label"""
+        if connected:
+            self.rfid_label.setText('🟢 متصل')
+            self.rfid_label.setStyleSheet('color: #166534; background:#DCFCE7; padding:6px 10px; border-radius:999px;')
+        else:
+            self.rfid_label.setText(f'🔴 متصل نیست ({message})')
+            self.rfid_label.setStyleSheet('color: #991B1B; background:#FEE2E2; padding:6px 10px; border-radius:999px;')
     
     @pyqtSlot(str)
     def on_scan_requested(self, scan_id: str):

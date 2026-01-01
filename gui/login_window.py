@@ -4,8 +4,9 @@ Shop owner authenticates here to register the terminal
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QLabel,
@@ -18,13 +19,31 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QGraphicsDropShadowEffect,
 )
 
 from services.auth_service import AuthService
 
 
+def _app_font(size: int, weight: QFont.Weight | None = None) -> QFont:
+    """Create a font using the application's default family (e.g., YekanBakh) with given size/weight."""
+    family = QApplication.instance().font().family() if QApplication.instance() else ""
+    f = QFont(family, size)
+    if weight is not None:
+        f.setWeight(weight)
+    return f
+
+
+def _apply_shadow(widget: QWidget):
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(28)
+    effect.setOffset(0, 10)
+    effect.setColor(QColor(2, 6, 23, 35))
+    widget.setGraphicsEffect(effect)
+
+
 class LoginWindow(QMainWindow):
-    """Two-step login: owner login -> select shop -> register terminal."""
+    """Three-step login: owner login -> select shop -> enter serial number -> register terminal."""
 
     login_success = pyqtSignal(dict)
 
@@ -34,12 +53,15 @@ class LoginWindow(QMainWindow):
         self._phone = ""
         self._password = ""
         self._shops = []
+        self._shop_id = None
+        self._device_name = ""
         self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("BarberKiosk - ورود به سیستم")
-        self.setMinimumSize(420, 560)
-        self.resize(460, 620)
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.setMinimumSize(420, 600)
+        self.resize(460, 680)
         self.setStyleSheet(self._get_stylesheet())
 
         central_widget = QWidget()
@@ -49,15 +71,15 @@ class LoginWindow(QMainWindow):
         layout.setContentsMargins(28, 28, 28, 28)
         layout.setSpacing(16)
 
-        title_label = QLabel("🔐 BarberKiosk")
+        title_label = QLabel("BarberKioskAgent")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setFont(QFont("Arial", 26, QFont.Weight.Bold))
-        title_label.setStyleSheet("color: #2563eb; margin-bottom: 6px;")
+        title_label.setFont(_app_font(26, QFont.Weight.Bold))
+        title_label.setStyleSheet("color: #0f172a; margin-bottom: 4px;")
         layout.addWidget(title_label)
 
-        subtitle_label = QLabel("سیستم اسکنر RFID")
+        subtitle_label = QLabel("ورود و ثبت ترمینال")
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle_label.setFont(QFont("Arial", 13))
+        subtitle_label.setFont(_app_font(13))
         subtitle_label.setStyleSheet("color: #64748b; margin-bottom: 12px;")
         layout.addWidget(subtitle_label)
 
@@ -67,11 +89,12 @@ class LoginWindow(QMainWindow):
         # Page 0: credentials
         login_frame = QFrame()
         login_frame.setObjectName("formFrame")
+        _apply_shadow(login_frame)
         login_layout = QVBoxLayout(login_frame)
         login_layout.setSpacing(12)
 
         phone_label = QLabel("شماره تلفن")
-        phone_label.setFont(QFont("Arial", 11))
+        phone_label.setFont(_app_font(11))
         login_layout.addWidget(phone_label)
 
         self.phone_input = QLineEdit()
@@ -80,7 +103,7 @@ class LoginWindow(QMainWindow):
         login_layout.addWidget(self.phone_input)
 
         password_label = QLabel("رمز عبور")
-        password_label.setFont(QFont("Arial", 11))
+        password_label.setFont(_app_font(11))
         login_layout.addWidget(password_label)
 
         self.password_input = QLineEdit()
@@ -102,6 +125,7 @@ class LoginWindow(QMainWindow):
         # Page 1: shop select + terminal name
         shop_frame = QFrame()
         shop_frame.setObjectName("formFrame")
+        _apply_shadow(shop_frame)
         shop_layout = QVBoxLayout(shop_frame)
         shop_layout.setSpacing(12)
 
@@ -111,14 +135,14 @@ class LoginWindow(QMainWindow):
         shop_layout.addWidget(self.owner_hint)
 
         choose_label = QLabel("انتخاب آرایشگاه")
-        choose_label.setFont(QFont("Arial", 11))
+        choose_label.setFont(_app_font(11))
         shop_layout.addWidget(choose_label)
 
         self.shop_combo = QComboBox()
         shop_layout.addWidget(self.shop_combo)
 
         device_label = QLabel("نام ترمینال")
-        device_label.setFont(QFont("Arial", 11))
+        device_label.setFont(_app_font(11))
         shop_layout.addWidget(device_label)
 
         self.device_input = QLineEdit()
@@ -141,6 +165,43 @@ class LoginWindow(QMainWindow):
 
         self.stack.addWidget(shop_frame)
 
+        # Page 2: serial number input
+        serial_frame = QFrame()
+        serial_frame.setObjectName("formFrame")
+        _apply_shadow(serial_frame)
+        serial_layout = QVBoxLayout(serial_frame)
+        serial_layout.setSpacing(12)
+
+        serial_hint = QLabel("شماره سریال دستگاه RFID را وارد کنید.\nاین شماره روی برچسب دستگاه چسبانده شده است.")
+        serial_hint.setStyleSheet("color: #64748b; font-size: 12px;")
+        serial_hint.setWordWrap(True)
+        serial_layout.addWidget(serial_hint)
+
+        serial_label = QLabel("شماره سریال دستگاه")
+        serial_label.setFont(_app_font(11))
+        serial_layout.addWidget(serial_label)
+
+        self.serial_input = QLineEdit()
+        self.serial_input.setPlaceholderText("مثال: SN123456789")
+        serial_layout.addWidget(self.serial_input)
+
+        serial_layout.addSpacerItem(QSpacerItem(10, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        serial_buttons = QHBoxLayout()
+        self.serial_back_button = QPushButton("بازگشت")
+        self.serial_back_button.setObjectName("secondaryButton")
+        self.serial_back_button.clicked.connect(self.on_serial_back_clicked)
+        serial_buttons.addWidget(self.serial_back_button)
+
+        self.serial_register_button = QPushButton("ثبت ترمینال")
+        self.serial_register_button.setObjectName("primaryButton")
+        self.serial_register_button.clicked.connect(self.on_serial_register_clicked)
+        serial_buttons.addWidget(self.serial_register_button)
+
+        serial_layout.addLayout(serial_buttons)
+
+        self.stack.addWidget(serial_frame)
+
         # Error label
         self.error_label = QLabel("")
         self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -149,9 +210,11 @@ class LoginWindow(QMainWindow):
         layout.addWidget(self.error_label)
 
     def _get_stylesheet(self) -> str:
-        return """
-            QMainWindow { background-color: #f8fafc; }
-            QLabel { color: #334155; }
+        family = QApplication.instance().font().family() if QApplication.instance() else ""
+        header = f'* {{ font-family: "{family}"; }}\n'
+        return header + """
+            QMainWindow { background-color: #f6f7fb; }
+            QLabel { color: #0f172a; }
             QLineEdit {
                 padding: 12px;
                 font-size: 14px;
@@ -172,9 +235,9 @@ class LoginWindow(QMainWindow):
             QComboBox:focus { border-color: #2563eb; }
             #formFrame {
                 background-color: white;
-                border-radius: 14px;
+                border-radius: 16px;
                 padding: 18px;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e8edf5;
             }
             #primaryButton {
                 background-color: #2563eb;
@@ -189,7 +252,7 @@ class LoginWindow(QMainWindow):
             #primaryButton:pressed { background-color: #1e40af; }
             #primaryButton:disabled { background-color: #94a3b8; }
             #secondaryButton {
-                background-color: #f1f5f9;
+                background-color: white;
                 color: #0f172a;
                 padding: 14px;
                 font-size: 14px;
@@ -197,7 +260,7 @@ class LoginWindow(QMainWindow):
                 border: 1px solid #e2e8f0;
                 border-radius: 10px;
             }
-            #secondaryButton:hover { background-color: #e2e8f0; }
+            #secondaryButton:hover { background-color: #f1f5f9; }
         """
 
     def on_login_clicked(self):
@@ -241,12 +304,18 @@ class LoginWindow(QMainWindow):
             self.shop_combo.addItem(s.get("name", f"Shop #{s.get('id')}"), s.get("id"))
 
         self.stack.setCurrentIndex(1)
+    
+    def on_serial_back_clicked(self):
+        """Go back to shop selection page"""
+        self.error_label.setText("")
+        self.stack.setCurrentIndex(1)
 
     def on_back_clicked(self):
         self.error_label.setText("")
         self.stack.setCurrentIndex(0)
 
     def on_register_clicked(self):
+        """Move to serial number page"""
         self.error_label.setText("")
         shop_id = self.shop_combo.currentData()
         if not shop_id:
@@ -254,14 +323,31 @@ class LoginWindow(QMainWindow):
             return
 
         device_name = self.device_input.text().strip() or "اسکنر RFID"
-        self.register_button.setEnabled(False)
-        self.register_button.setText("در حال ثبت...")
+        self._shop_id = int(shop_id)
+        self._device_name = device_name
+        
+        # Clear serial input and move to serial number page
+        self.serial_input.clear()
+        self.stack.setCurrentIndex(2)
+    
+    def on_serial_register_clicked(self):
+        """Register terminal with serial number"""
+        self.error_label.setText("")
+        
+        serial_number = self.serial_input.text().strip()
+        if not serial_number:
+            self.error_label.setText("لطفاً شماره سریال دستگاه را وارد کنید")
+            return
+
+        self.serial_register_button.setEnabled(False)
+        self.serial_register_button.setText("در حال ثبت...")
 
         ok, message, credentials = self.auth_service.register(
             self._phone,
             self._password,
-            device_name,
-            shop_id=int(shop_id),
+            self._device_name,
+            shop_id=self._shop_id,
+            serial_number=serial_number,
         )
 
         if ok:
@@ -270,6 +356,6 @@ class LoginWindow(QMainWindow):
             return
 
         self.error_label.setText(message)
-        self.register_button.setEnabled(True)
-        self.register_button.setText("ثبت ترمینال")
+        self.serial_register_button.setEnabled(True)
+        self.serial_register_button.setText("ثبت ترمینال")
 

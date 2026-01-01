@@ -5,7 +5,7 @@ Handles registration and authentication with the backend
 import requests
 import logging
 from typing import Tuple, Optional, Dict, List, Any
-from config import load_config, get_device_id, save_credentials, load_credentials, fetch_config_from_backend, save_config
+from config import load_config, get_device_id, save_credentials, load_credentials, fetch_config_from_backend, fetch_terminal_config_from_backend, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +45,17 @@ class AuthService:
         except Exception as e:
             return False, f'خطا: {str(e)}', None
     
-    def register(self, phone: str, password: str, device_name: str = 'RFID Scanner', shop_id: Optional[int] = None) -> Tuple[bool, str, Optional[Dict]]:
+    def register(self, phone: str, password: str, device_name: str = 'RFID Scanner', shop_id: Optional[int] = None, serial_number: Optional[str] = None) -> Tuple[bool, str, Optional[Dict]]:
         """
         Register the terminal with the backend.
+        Optionally assigns RFID device by serial_number.
         
         Args:
             phone: Shop owner's phone number
             password: Shop owner's password
             device_name: Name for this terminal
+            shop_id: Shop ID (optional)
+            serial_number: RFID device serial number (optional, for auto-assignment)
         
         Returns:
             Tuple of (success, message, data)
@@ -67,6 +70,8 @@ class AuthService:
         }
         if shop_id is not None:
             payload['shop_id'] = shop_id
+        if serial_number:
+            payload['serial_number'] = serial_number
         
         try:
             response = requests.post(url, json=payload, timeout=30)
@@ -74,13 +79,7 @@ class AuthService:
             if response.status_code == 200:
                 data = response.json()
                 
-                # Fetch config from backend (RabbitMQ settings, etc.)
-                logger.info("Fetching configuration from backend...")
-                backend_config = fetch_config_from_backend(self.backend_url)
-                save_config(backend_config)
-                logger.info("Configuration saved from backend")
-                
-                # Save credentials for future use
+                # Save credentials first
                 credentials = {
                     'terminal_id': data['terminal_id'],
                     'auth_token': data['auth_token'],
@@ -91,9 +90,33 @@ class AuthService:
                 }
                 save_credentials(credentials)
                 
+                # Check if device was assigned
+                device_assigned = data.get('device_assigned', False)
+                if device_assigned:
+                    logger.info("RFID device was automatically assigned during registration")
+                elif serial_number:
+                    logger.warning(f"Serial number provided but device was not assigned: {serial_number}")
+                
+                # Fetch authenticated terminal config from backend (RabbitMQ + RFID device identity)
+                logger.info("Fetching terminal-specific configuration from backend...")
+                backend_config = fetch_terminal_config_from_backend(
+                    self.backend_url,
+                    data['terminal_id'],
+                    data['auth_token']
+                )
+                save_config(backend_config)
+                logger.info("Terminal configuration saved from backend")
+                
                 return True, 'ثبت‌نام موفقیت‌آمیز بود', credentials
             else:
-                error = response.json().get('error', 'خطای ناشناخته')
+                error_data = response.json()
+                error = error_data.get('error', 'خطای ناشناخته')
+                # Handle ValidationError format
+                if isinstance(error, dict):
+                    # Extract first error message
+                    error = list(error.values())[0] if error else 'خطای ناشناخته'
+                    if isinstance(error, list):
+                        error = error[0] if error else 'خطای ناشناخته'
                 return False, str(error), None
                 
         except requests.exceptions.ConnectionError:

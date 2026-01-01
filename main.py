@@ -5,14 +5,17 @@ Main entry point for the desktop application
 """
 import sys
 import logging
+import os
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, Qt
+from PyQt6.QtGui import QFont, QFontDatabase
 
-from config import load_credentials, load_config, fetch_config_from_backend, save_config
+from config import load_credentials, load_config, fetch_terminal_config_from_backend, save_config
 from gui.login_window import LoginWindow
 from gui.main_window import MainWindow
 from services.rfid_reader import get_reader
 from services.rabbitmq_client import get_client
+from services.updater import get_updater
 
 # Setup logging
 logging.basicConfig(
@@ -20,6 +23,63 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def resource_path(relative_path: str) -> str:
+    """
+    Resolve resource path for dev and PyInstaller builds.
+    """
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def apply_rtl_and_fonts(app: QApplication):
+    """
+    Apply RTL layout direction and load Persian fonts from statics.
+    """
+    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+
+    # Load fonts
+    font_paths = [
+        resource_path(os.path.join("statics", "YekanBakh-Regular.ttf")),
+        resource_path(os.path.join("statics", "YekanBakh-Bold.ttf")),
+    ]
+
+    loaded_families: list[str] = []
+    for fp in font_paths:
+        try:
+            if not os.path.exists(fp):
+                logger.warning(f"Font file not found: {fp}")
+                continue
+            font_id = QFontDatabase.addApplicationFont(fp)
+            if font_id != -1:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                loaded_families.extend(list(families))
+            else:
+                logger.warning(f"Could not load font file: {fp}")
+        except Exception:
+            logger.exception(f"Error loading font file: {fp}")
+
+    # Set application default font (pick the first loaded family)
+    if loaded_families:
+        # de-duplicate while keeping order
+        seen = set()
+        unique_families = []
+        for f in loaded_families:
+            if f and f not in seen:
+                seen.add(f)
+                unique_families.append(f)
+
+        family = unique_families[0]
+        app.setFont(QFont(family, 12))
+        logger.info(f"Using application font: {family} (loaded: {unique_families})")
+    else:
+        logger.warning("No custom fonts loaded; using system default font.")
+
+    # Ensure line edits are right-aligned by default
+    app.setStyleSheet("""
+        QLineEdit { qproperty-alignment: AlignRight; }
+        QTextEdit { qproperty-alignment: AlignRight; }
+    """)
 
 
 class AgentApplication(QObject):
@@ -32,12 +92,15 @@ class AgentApplication(QObject):
     scan_requested = pyqtSignal(str)
     scan_completed = pyqtSignal(str, str)
     scan_error = pyqtSignal(str)
+    rfid_status = pyqtSignal(bool, str)
     
     def __init__(self):
         super().__init__()
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName('BarberKiosk Agent')
+        self.app.setApplicationName('BarberAgent')
         self.app.setOrganizationName('BarberKiosk')
+
+        apply_rtl_and_fonts(self.app)
         
         self.login_window = None
         self.main_window = None
@@ -46,17 +109,34 @@ class AgentApplication(QObject):
     
     def run(self):
         """Run the application"""
+        # Start auto-updater in background (checks periodically)
+        updater = get_updater()
+        updater.start_background_check()
+        
+        # Check if we should restart to use new version
+        if updater.should_restart():
+            logger.info("New version detected, restarting application...")
+            updater.restart_application()
+            return 0
+        
         # Check for saved credentials
         credentials = load_credentials()
         
         if credentials and credentials.get('terminal_id'):
-            # Already logged in, fetch latest config from backend
+            # Already logged in, fetch latest terminal-specific config from backend
             config = load_config()
             backend_url = config.get('backend_url', 'http://localhost:8000')
-            logger.info("Fetching latest configuration from backend...")
-            backend_config = fetch_config_from_backend(backend_url)
+            terminal_id = credentials.get('terminal_id')
+            auth_token = credentials.get('auth_token')
+            
+            logger.info("Fetching latest terminal configuration from backend...")
+            backend_config = fetch_terminal_config_from_backend(
+                backend_url,
+                terminal_id,
+                auth_token
+            )
             save_config(backend_config)
-            logger.info("Configuration updated from backend")
+            logger.info("Terminal configuration updated from backend")
             
             # Go to main window
             self.start_main_window(credentials)
@@ -88,9 +168,10 @@ class AgentApplication(QObject):
         self.scan_requested.connect(self.main_window.on_scan_requested)
         self.scan_completed.connect(self.main_window.on_scan_completed)
         self.scan_error.connect(self.main_window.on_scan_error)
+        self.rfid_status.connect(self.main_window.on_rfid_status)
         
         # Start RFID reader
-        self.reader = get_reader()
+        self.reader = get_reader(on_status_change=self._on_rfid_status_change)
         self.reader.start()
         
         # Start RabbitMQ client
@@ -109,6 +190,10 @@ class AgentApplication(QObject):
         
         self.main_window.show()
         logger.info("Agent started successfully")
+
+    def _on_rfid_status_change(self, connected: bool, message: str):
+        """Thread-safe callback for RFID status changes"""
+        self.rfid_status.emit(connected, message)
     
     def _on_scan_requested(self, scan_id: str):
         """Thread-safe callback for scan requested"""
@@ -140,6 +225,9 @@ class AgentApplication(QObject):
             self.reader.stop()
         if self.mq_client:
             self.mq_client.stop()
+        # Stop update checker
+        updater = get_updater()
+        updater.stop_background_check()
 
 
 def main():
