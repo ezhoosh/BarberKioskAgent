@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 # GitHub repository (update this to your actual repo)
 # GitHub repository - update this to your actual repository
-# Format: "owner/repo" (e.g., "ezhoosh/barber")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "ezhoosh/barber")
+# Format: "owner/repo" (e.g., "ezhoosh/BarberKioskAgent")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "ezhoosh/BarberKioskAgent")
 GITHUB_API_BASE = "https://api.github.com"
 
 # Update directories

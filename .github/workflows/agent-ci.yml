@@ -5,12 +5,10 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - "BarberKioskAgent/**"
-      - ".github/workflows/agent-ci.yml"
+      - "**"
   pull_request:
     paths:
-      - "BarberKioskAgent/**"
-      - ".github/workflows/agent-ci.yml"
+      - "**"
 
 jobs:
   build:
@@ -32,14 +30,14 @@ jobs:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: |
-            BarberKioskAgent/requirements.txt
+            requirements.txt
 
       - name: Install dependencies
         if: runner.os == 'macOS'
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -r BarberKioskAgent/requirements.txt
+          pip install -r requirements.txt
           pip install pyinstaller
 
       - name: Install dependencies (Windows)
@@ -47,28 +45,25 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install -r BarberKioskAgent/requirements.txt
+          pip install -r requirements.txt
           pip install pyinstaller
 
       - name: Build with PyInstaller
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          cd BarberKioskAgent
           pyinstaller BarberAgent.spec
 
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cd BarberKioskAgent
           pyinstaller BarberAgent.spec
 
       - name: Create macOS DMG
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          cd BarberKioskAgent
           chmod +x scripts/build_macos_dmg.sh
           ./scripts/build_macos_dmg.sh
 
@@ -76,14 +71,14 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          cd BarberKioskAgent/dist
+          cd dist
           ditto -c -k --sequesterRsrc --keepParent BarberAgent.app BarberAgent-macos.zip
 
       - name: Package artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cd BarberKioskAgent/dist
+          cd dist
           Compress-Archive -Path BarberAgent -DestinationPath BarberAgent-windows.zip -Force
 
       - name: Upload artifacts
@@ -91,7 +86,7 @@ jobs:
         with:
           name: BarberAgent-${{ runner.os }}
           path: |
-            BarberKioskAgent/dist/BarberAgent-macos.zip
-            BarberKioskAgent/dist/BarberAgent.dmg
-            BarberKioskAgent/dist/BarberAgent-windows.zip
+            dist/BarberAgent-macos.zip
+            dist/BarberAgent.dmg
+            dist/BarberAgent-windows.zip
 
