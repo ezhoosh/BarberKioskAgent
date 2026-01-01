@@ -1,5 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+
+ICON_FILE = "statics/logo.ico" if sys.platform.startswith("win") else "statics/logo.icns"
+
 
 a = Analysis(
     ['main.py'],
@@ -35,7 +39,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['statics/logo.icns'],
+    icon=[ICON_FILE],
 )
 coll = COLLECT(
     exe,
@@ -49,7 +53,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='BarberAgent.app',
-    icon='statics/logo.icns',
+    icon=ICON_FILE,
     bundle_identifier=None,
 )
 
