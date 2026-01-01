@@ -47,6 +47,24 @@ ln -s /Applications "${STAGING_DIR}/Applications"
 # If the user's Finder is configured to show hidden files, ".background" becomes visible.
 # A clean drag-and-drop DMG (app + Applications shortcut) matches typical installers without exposing extra files.
 
+# In CI (GitHub Actions), Finder scripting/mount+detach is flaky and can fail with "Resource busy".
+# Create a simple compressed DMG directly without mounting/styling.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  rm -f "${DMG_OUT}" || true
+  APP_SIZE_MB="$(du -sm "${APP_BUNDLE}" | awk '{print $1}')"
+  DMG_SIZE_MB="$((APP_SIZE_MB + 50))"
+  echo "GITHUB_ACTIONS=true -> creating DMG without mounting/styling: ${DMG_OUT}"
+  hdiutil create \
+    -volname "${APP_NAME}" \
+    -srcfolder "${STAGING_DIR}" \
+    -ov \
+    -format UDZO \
+    -size "${DMG_SIZE_MB}m" \
+    "${DMG_OUT}"
+  echo "DMG created: ${DMG_OUT}"
+  exit 0
+fi
+
 # Create DMG (read-write first so we can style it)
 rm -f "${DMG_OUT}" || true
 
@@ -95,7 +113,20 @@ EOF
 
 sync
 echo "Detaching DMG..."
-hdiutil detach "${MOUNT_DIR}" >/dev/null
+detach_ok=false
+for i in 1 2 3 4 5; do
+  if hdiutil detach "${MOUNT_DIR}" >/dev/null 2>&1; then
+    detach_ok=true
+    break
+  fi
+  # Retry with force (Finder/Spotlight can keep the mount busy briefly)
+  hdiutil detach -force "${MOUNT_DIR}" >/dev/null 2>&1 || true
+  sleep 1
+done
+if [[ "${detach_ok}" != "true" ]]; then
+  echo "WARNING: Could not detach DMG cleanly (resource busy). Trying diskutil force unmount..."
+  diskutil unmount force "${MOUNT_DIR}" >/dev/null 2>&1 || true
+fi
 rm -rf "${MOUNT_DIR}" || true
 
 # Convert to compressed read-only DMG
