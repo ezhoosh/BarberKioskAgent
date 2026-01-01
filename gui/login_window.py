@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.auth_service import AuthService
+from version import __version__
 
 
 def _app_font(size: int, weight: QFont.Weight | None = None) -> QFont:
@@ -82,6 +83,12 @@ class LoginWindow(QMainWindow):
         subtitle_label.setFont(_app_font(13))
         subtitle_label.setStyleSheet("color: #64748b; margin-bottom: 12px;")
         layout.addWidget(subtitle_label)
+
+        version_label = QLabel(f"نسخه {__version__}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setFont(_app_font(11))
+        version_label.setStyleSheet("color: #94a3b8; margin-bottom: 6px;")
+        layout.addWidget(version_label)
 
         self.stack = QStackedWidget()
         layout.addWidget(self.stack)

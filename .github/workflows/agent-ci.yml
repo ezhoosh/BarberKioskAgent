@@ -60,6 +60,12 @@ jobs:
         run: |
           pyinstaller BarberAgent.spec
 
+      - name: Build single EXE (Windows onefile)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller BarberAgent-onefile.spec
+
       - name: Create macOS DMG
         if: runner.os == 'macOS'
         shell: bash
@@ -80,6 +86,7 @@ jobs:
         run: |
           cd dist
           Compress-Archive -Path BarberAgent -DestinationPath BarberAgent-windows.zip -Force
+          Copy-Item -Force BarberAgent.exe BarberAgent-windows.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

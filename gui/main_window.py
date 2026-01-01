@@ -2,6 +2,8 @@
 Main Window for the RFID Agent
 Shows status and scan results
 """
+import threading
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect
@@ -10,6 +12,8 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QColor
 
 from config import clear_credentials
+from version import __version__
+from services.updater import get_updater
 
 
 def _app_font(size: int, weight: QFont.Weight | None = None) -> QFont:
@@ -67,8 +71,18 @@ class MainWindow(QMainWindow):
         title_label.setStyleSheet('color: #0f172a;')
         header_layout.addWidget(title_label)
         
+        version_label = QLabel(f"نسخه {__version__}")
+        version_label.setFont(_app_font(11))
+        version_label.setStyleSheet("color:#64748b; padding: 0 8px;")
+        header_layout.addWidget(version_label)
+
         header_layout.addStretch()
         
+        self.update_btn = QPushButton('بررسی بروزرسانی')
+        self.update_btn.setObjectName('secondaryButton')
+        self.update_btn.clicked.connect(self.on_check_updates_clicked)
+        header_layout.addWidget(self.update_btn)
+
         # Logout button
         logout_btn = QPushButton('خروج')
         logout_btn.setObjectName('logoutButton')
@@ -276,6 +290,29 @@ class MainWindow(QMainWindow):
         clear_credentials()
         self.logout_requested.emit()
         self.close()
+
+    def on_check_updates_clicked(self):
+        """Manually trigger update check (runs in background)."""
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("در حال بررسی…")
+
+        def _run():
+            try:
+                updater = get_updater()
+                installed = updater.check_and_update()
+                # If installed, app will restart on next launch (or you can implement immediate restart)
+                if installed:
+                    self.update_btn.setText("آپدیت نصب شد")
+                else:
+                    self.update_btn.setText("آپدیتی نیست")
+            except Exception:
+                self.update_btn.setText("خطا در بررسی")
+            finally:
+                # Re-enable after a short delay (UI thread-safe via singleShot)
+                QTimer.singleShot(1200, lambda: self.update_btn.setEnabled(True))
+                QTimer.singleShot(1200, lambda: self.update_btn.setText("بررسی بروزرسانی"))
+
+        threading.Thread(target=_run, daemon=True).start()
     
     def closeEvent(self, event):
         """Handle window close"""

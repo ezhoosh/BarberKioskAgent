@@ -142,11 +142,32 @@ class Updater:
         else:
             return None
         
-        # Look for matching asset
+        # Look for matching asset with preference order
+        # - Windows: prefer zip (contains onedir build) to keep update logic consistent; exe is for manual download.
+        # - macOS: prefer zip (for auto-updater); dmg is for manual install.
+        preferred_exts = [".zip"]
+        if system == "windows":
+            preferred_exts = [".zip", ".exe"]
+        elif system == "darwin":
+            preferred_exts = [".zip", ".dmg"]
+
+        matching = []
         for asset in assets:
-            name = asset.get('name', '').lower()
+            name = (asset.get("name", "") or "").lower()
             if pattern in name:
-                return asset
+                matching.append(asset)
+
+        # Sort by preferred extension order
+        def _score(a: dict) -> int:
+            n = (a.get("name", "") or "").lower()
+            for i, ext in enumerate(preferred_exts):
+                if n.endswith(ext):
+                    return i
+            return len(preferred_exts) + 1
+
+        matching.sort(key=_score)
+        if matching:
+            return matching[0]
         
         return None
 
