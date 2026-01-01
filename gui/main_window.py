@@ -6,7 +6,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect
+    QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QColor
@@ -65,25 +65,33 @@ class MainWindow(QMainWindow):
         
         # Header
         header_layout = QHBoxLayout()
-        
-        title_label = QLabel('BarberKioskAgent')
+
+        # Right side: title + version (stacked) to leave enough space for buttons
+        title_wrap = QVBoxLayout()
+        title_wrap.setSpacing(2)
+
+        title_label = QLabel('BarberAgent')
         title_label.setFont(_app_font(18, QFont.Weight.Bold))
         title_label.setStyleSheet('color: #0f172a;')
-        header_layout.addWidget(title_label)
-        
+        title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         version_label = QLabel(f"نسخه {__version__}")
-        version_label.setFont(_app_font(11))
-        version_label.setStyleSheet("color:#64748b; padding: 0 8px;")
-        header_layout.addWidget(version_label)
+        version_label.setFont(_app_font(10))
+        version_label.setStyleSheet("color:#64748b;")
+
+        title_wrap.addWidget(title_label)
+        title_wrap.addWidget(version_label)
+        header_layout.addLayout(title_wrap)
 
         header_layout.addStretch()
-        
+
+        # Left side: actions
         self.update_btn = QPushButton('بررسی بروزرسانی')
         self.update_btn.setObjectName('secondaryButton')
+        self.update_btn.setMinimumWidth(150)
         self.update_btn.clicked.connect(self.on_check_updates_clicked)
         header_layout.addWidget(self.update_btn)
 
-        # Logout button
         logout_btn = QPushButton('خروج')
         logout_btn.setObjectName('logoutButton')
         logout_btn.clicked.connect(self.on_logout_clicked)
@@ -211,6 +219,17 @@ class MainWindow(QMainWindow):
                 border-radius: 10px;
             }
             #logoutButton:hover {
+                background-color: #f1f5f9;
+            }
+            #secondaryButton {
+                background-color: white;
+                color: #0f172a;
+                padding: 10px 14px;
+                font-size: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+            }
+            #secondaryButton:hover {
                 background-color: #f1f5f9;
             }
         '''

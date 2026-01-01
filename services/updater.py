@@ -315,8 +315,16 @@ class Updater:
             return False
         
         try:
-            # Check if current executable is different from symlink target
+            # Check if current executable is different from "current" target.
+            # - macOS/Linux: CURRENT_SYMLINK is a symlink to the new app/binary
+            # - Windows: CURRENT_SYMLINK is a directory copy containing BarberAgent.exe
             current_exe = Path(sys.executable)
+            if platform.system() == "Windows":
+                target_exe = CURRENT_SYMLINK / "BarberAgent.exe"
+                if target_exe.exists():
+                    return current_exe != target_exe
+                return False
+
             if CURRENT_SYMLINK.is_symlink():
                 target = CURRENT_SYMLINK.resolve()
                 target_exe = self._resolve_executable_path(target)
