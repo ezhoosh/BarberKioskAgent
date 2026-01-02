@@ -14,6 +14,7 @@ import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+import re
 from typing import Optional, Tuple
 from packaging import version
 
@@ -108,7 +109,22 @@ class Updater:
             response.raise_for_status()
             
             data = response.json()
-            release_version = data.get('tag_name', '').lstrip('v')  # Remove 'v' prefix if present
+            tag_name = (data.get('tag_name', '') or '').strip()
+
+            # Support tags like:
+            # - v1.2.3
+            # - agent-v1.2.3
+            # - 1.2.3
+            release_version = tag_name
+            if release_version.startswith('agent-v'):
+                release_version = release_version[len('agent-v'):]
+            if release_version.startswith('v'):
+                release_version = release_version[1:]
+
+            # Final fallback: extract first semver-ish substring (e.g., 1.2.3) if tag includes extra text
+            m = re.search(r'(\d+\.\d+\.\d+(?:\.\d+)?)', release_version)
+            if m:
+                release_version = m.group(1)
             
             # Find asset for current platform
             assets = data.get('assets', [])
