@@ -68,6 +68,23 @@ class RFIDReader:
     def set_status_callback(self, cb: Optional[Callable[[bool, str], None]]):
         """Set/replace status callback."""
         self.on_status_change = cb
+    
+    def reload_config(self):
+        """Reload configuration from disk."""
+        self.config = load_config()
+        new_rfid_device = self.config.get('rfid_device') or {}
+        
+        # Only update if device info has changed
+        if new_rfid_device != self.rfid_device:
+            self.rfid_device = new_rfid_device
+            if self.rfid_device:
+                # Use baudrate from backend if provided
+                if self.rfid_device.get('baudrate'):
+                    self.baudrate = self.rfid_device.get('baudrate')
+                logger.info("RFID device configuration reloaded from disk")
+                self._notify_status(False, "پیکربندی دستگاه بروزرسانی شد. در حال اتصال...")
+            else:
+                logger.info("RFID device configuration still empty after reload")
 
     def _notify_status(self, connected: bool, message: str):
         """Notify UI about RFID status if callback is set."""
@@ -198,6 +215,7 @@ class RFIDReader:
     def _read_loop(self):
         """Main loop for reading RFID cards"""
         backoff_seconds = 1.0
+        last_config_reload = time.time()
 
         while self.is_running:
             # Ensure we have a connected serial port; if not, keep trying (supports plug/unplug)
@@ -205,6 +223,10 @@ class RFIDReader:
                 self.disconnect()
 
                 if not self.rfid_device:
+                    # Periodically reload config in case device was assigned after agent started
+                    if time.time() - last_config_reload > 5.0:
+                        self.reload_config()
+                        last_config_reload = time.time()
                     time.sleep(2.0)
                     continue
 
