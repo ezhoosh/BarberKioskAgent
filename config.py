@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Default configuration (fallback only)
 DEFAULT_CONFIG = {
-    'backend_url': 'http://localhost:8000',
+    'backend_url': 'https://api.ezbarber.ir',
     'rabbitmq_host': 'localhost',
     'rabbitmq_port': 5672,
     'rabbitmq_user': 'barber',
