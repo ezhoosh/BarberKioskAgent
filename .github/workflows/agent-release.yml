@@ -134,9 +134,17 @@ jobs:
             AWS_DEFAULT_REGION="us-east-1"
           fi
 
-          echo "Installing awscli"
-          sudo apt-get update -y
-          sudo apt-get install -y awscli
+          if ! command -v aws >/dev/null 2>&1; then
+            echo "Installing AWS CLI v2"
+            sudo apt-get update -y
+            sudo apt-get install -y curl unzip
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+            rm -rf /tmp/aws
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install --update
+          fi
+
+          aws --version
 
           echo "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/"
 
