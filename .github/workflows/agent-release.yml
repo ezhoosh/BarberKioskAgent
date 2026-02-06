@@ -109,6 +109,63 @@ jobs:
         with:
           path: artifacts
 
+      - name: Upload release assets to public S3 (barbershop-pub)
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+          AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+          S3_BUCKET: barbershop-pub
+          S3_PREFIX: agents/${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+            echo "Missing AWS credentials secrets (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)."
+            exit 1
+          fi
+
+          if [[ -z "${AWS_S3_ENDPOINT_URL:-}" ]]; then
+            AWS_S3_ENDPOINT_URL="https://ezhoosh-tufde.hs3.ir"
+          fi
+
+          if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
+            AWS_DEFAULT_REGION="us-east-1"
+          fi
+
+          echo "Installing awscli"
+          sudo apt-get update -y
+          sudo apt-get install -y awscli
+
+          echo "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/"
+
+          upload_one() {
+            local src="$1"
+            local name="$2"
+            if [[ ! -f "$src" ]]; then
+              echo "Missing artifact: $src"
+              exit 1
+            fi
+            aws s3 cp \
+              --endpoint-url "$AWS_S3_ENDPOINT_URL" \
+              "$src" \
+              "s3://${S3_BUCKET}/${S3_PREFIX}/${name}" \
+              --acl public-read
+          }
+
+          shopt -s globstar nullglob
+
+          windows_zip=(artifacts/**/BarberAgent-windows.zip)
+          windows_exe=(artifacts/**/BarberAgent-windows.exe)
+          macos_zip=(artifacts/**/BarberAgent-macos.zip)
+          macos_dmg=(artifacts/**/BarberAgent.dmg)
+
+          upload_one "${windows_zip[0]:-}" "BarberAgent-windows.zip"
+          upload_one "${windows_exe[0]:-}" "BarberAgent-windows.exe"
+          upload_one "${macos_zip[0]:-}" "BarberAgent-macos.zip"
+          upload_one "${macos_dmg[0]:-}" "BarberAgent.dmg"
+
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
