@@ -116,6 +116,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           AWS_S3_ENDPOINT_URL: ${{ secrets.AWS_S3_ENDPOINT_URL }}
+          AWS_MAX_ATTEMPTS: "10"
+          AWS_RETRY_MODE: "standard"
+          AWS_EC2_METADATA_DISABLED: "true"
           S3_BUCKET: barbershop-pub
           S3_PREFIX: agents/${{ github.ref_name }}
         run: |
@@ -146,20 +149,47 @@ jobs:
 
           aws --version
 
+          # Hardening for S3-compatible endpoints (timeouts, lower concurrency, stable multipart sizes).
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.max_concurrent_requests 2
+          aws configure set default.s3.multipart_threshold 16MB
+          aws configure set default.s3.multipart_chunksize 16MB
+
           echo "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/"
 
           upload_one() {
             local src="$1"
             local name="$2"
-            if [[ ! -f "$src" ]]; then
+            if [[ -z "${src:-}" || ! -f "$src" ]]; then
               echo "Missing artifact: $src"
               exit 1
             fi
-            aws s3 cp \
-              --endpoint-url "$AWS_S3_ENDPOINT_URL" \
-              "$src" \
-              "s3://${S3_BUCKET}/${S3_PREFIX}/${name}" \
-              --acl public-read
+
+            local dest="s3://${S3_BUCKET}/${S3_PREFIX}/${name}"
+            local attempt=1
+            local max_attempts=5
+
+            while true; do
+              echo "Uploading (${attempt}/${max_attempts}): ${name}"
+              if aws s3 cp \
+                --endpoint-url "$AWS_S3_ENDPOINT_URL" \
+                "$src" \
+                "$dest" \
+                --acl public-read \
+                --only-show-errors \
+                --cli-connect-timeout 30 \
+                --cli-read-timeout 300; then
+                break
+              fi
+
+              if (( attempt >= max_attempts )); then
+                echo "Upload failed after ${max_attempts} attempts: ${name}"
+                exit 1
+              fi
+
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
           }
 
           shopt -s globstar nullglob
