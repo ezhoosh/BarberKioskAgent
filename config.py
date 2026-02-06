@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,31 @@ def _safe_headers() -> dict:
         "Accept-Encoding": "identity",
         "User-Agent": "BarberAgent/1.0",
     }
+
+def _request_json(method: str, url: str, *, payload: dict | None, timeout) -> requests.Response:
+    """
+    Same redirect-safe behavior as AuthService:
+    don't allow POST->GET downgrade on 301/302 (http->https).
+    """
+    redirects_left = 2
+    current_url = url
+    while True:
+        resp = _get_session().request(
+            method=method.upper(),
+            url=current_url,
+            json=payload,
+            headers=_safe_headers(),
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        if resp.status_code in (301, 302, 303, 307, 308) and redirects_left > 0:
+            location = resp.headers.get("Location") or resp.headers.get("location")
+            if not location:
+                return resp
+            current_url = urljoin(current_url, location)
+            redirects_left -= 1
+            continue
+        return resp
 
 
 def ensure_config_dir():
@@ -147,7 +173,7 @@ def fetch_config_from_backend(backend_url: str) -> dict:
         api_url = f"{base_url}/api/hardware/agent-config/"
         
         logger.info(f"Fetching config from backend: {api_url}")
-        response = _get_session().get(api_url, headers=_safe_headers(), timeout=(5, 10))
+        response = _request_json("GET", api_url, payload=None, timeout=(5, 10))
         response.raise_for_status()
         
         data = response.json()
@@ -204,7 +230,7 @@ def fetch_terminal_config_from_backend(backend_url: str, terminal_id: int, auth_
         }
         
         logger.info(f"Fetching terminal config from backend: {api_url}")
-        response = _get_session().post(api_url, json=payload, headers=_safe_headers(), timeout=(5, 10))
+        response = _request_json("POST", api_url, payload=payload, timeout=(5, 10))
         response.raise_for_status()
         
         data = response.json()

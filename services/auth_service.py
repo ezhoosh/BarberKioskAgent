@@ -7,6 +7,7 @@ import logging
 from typing import Tuple, Optional, Dict, List, Any
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib.parse import urljoin
 from config import load_config, get_device_id, save_credentials, load_credentials, fetch_config_from_backend, fetch_terminal_config_from_backend, save_config
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,36 @@ class AuthService:
             "User-Agent": "BarberAgent/1.0",
         }
 
+    def _request_json(self, method: str, url: str, *, payload: dict, timeout) -> requests.Response:
+        """
+        Make a JSON request but DO NOT allow requests to downgrade POST->GET on redirects.
+        This can happen with 301/302 redirects (e.g., http -> https) and shows up as:
+          backend: "GET /api/auth/login/ 405 Method Not Allowed"
+        """
+        headers = self._safe_headers()
+        redirects_left = 2
+        current_url = url
+
+        while True:
+            resp = self.session.request(
+                method=method.upper(),
+                url=current_url,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+
+            if resp.status_code in (301, 302, 303, 307, 308) and redirects_left > 0:
+                location = resp.headers.get("Location") or resp.headers.get("location")
+                if not location:
+                    return resp
+                current_url = urljoin(current_url, location)
+                redirects_left -= 1
+                continue
+
+            return resp
+
     def owner_login(self, phone: str, password: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
         Login as shop owner to fetch owned shops list.
@@ -59,12 +90,7 @@ class AuthService:
         url = f"{self.backend_url}/api/auth/login/"
         payload = {"phone": phone, "password": password}
         try:
-            response = self.session.post(
-                url,
-                json=payload,
-                headers=self._safe_headers(),
-                timeout=(10, 30),
-            )
+            response = self._request_json("POST", url, payload=payload, timeout=(10, 30))
             if response.status_code == 200:
                 data = response.json()
                 shops = data.get("shops", []) or []
@@ -115,12 +141,7 @@ class AuthService:
             payload['serial_number'] = serial_number
         
         try:
-            response = self.session.post(
-                url,
-                json=payload,
-                headers=self._safe_headers(),
-                timeout=(10, 30),
-            )
+            response = self._request_json("POST", url, payload=payload, timeout=(10, 30))
             
             if response.status_code == 200:
                 data = response.json()
@@ -189,12 +210,7 @@ class AuthService:
         }
         
         try:
-            response = self.session.post(
-                url,
-                json=payload,
-                headers=self._safe_headers(),
-                timeout=(5, 10),
-            )
+            response = self._request_json("POST", url, payload=payload, timeout=(5, 10))
             return response.status_code == 200
         except Exception:
             return False
