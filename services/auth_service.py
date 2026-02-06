@@ -5,6 +5,8 @@ Handles registration and authentication with the backend
 import requests
 import logging
 from typing import Tuple, Optional, Dict, List, Any
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from config import load_config, get_device_id, save_credentials, load_credentials, fetch_config_from_backend, fetch_terminal_config_from_backend, save_config
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,37 @@ class AuthService:
         self.config = load_config()
         self.backend_url = self.config['backend_url']
         self.device_id = get_device_id()
+        self.session = self._build_session()
+
+    def _build_session(self) -> requests.Session:
+        """
+        Use a retrying session to reduce flaky network issues on Windows
+        (e.g. connection reset / incomplete reads behind proxies).
+        """
+        s = requests.Session()
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            backoff_factor=0.6,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=frozenset(["GET", "POST"]),
+            raise_on_status=False,
+            respect_retry_after_header=True,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+        s.mount("http://", adapter)
+        s.mount("https://", adapter)
+        return s
+
+    def _safe_headers(self) -> Dict[str, str]:
+        # Avoid some proxy/keep-alive edge-cases on Windows and disable compression.
+        return {
+            "Connection": "close",
+            "Accept-Encoding": "identity",
+            "User-Agent": "BarberAgent/1.0",
+        }
 
     def owner_login(self, phone: str, password: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
@@ -26,7 +59,12 @@ class AuthService:
         url = f"{self.backend_url}/api/auth/login/"
         payload = {"phone": phone, "password": password}
         try:
-            response = requests.post(url, json=payload, timeout=30)
+            response = self.session.post(
+                url,
+                json=payload,
+                headers=self._safe_headers(),
+                timeout=(10, 30),
+            )
             if response.status_code == 200:
                 data = response.json()
                 shops = data.get("shops", []) or []
@@ -42,6 +80,9 @@ class AuthService:
             return False, 'ارتباط با سرور برقرار نشد', None
         except requests.exceptions.Timeout:
             return False, 'زمان اتصال به سرور به پایان رسید', None
+        except requests.exceptions.ChunkedEncodingError:
+            # Often seen as "IncompleteRead" or connection broken.
+            return False, "اتصال ناپایدار بود. لطفاً دوباره تلاش کنید.", None
         except Exception as e:
             return False, f'خطا: {str(e)}', None
     
@@ -74,7 +115,12 @@ class AuthService:
             payload['serial_number'] = serial_number
         
         try:
-            response = requests.post(url, json=payload, timeout=30)
+            response = self.session.post(
+                url,
+                json=payload,
+                headers=self._safe_headers(),
+                timeout=(10, 30),
+            )
             
             if response.status_code == 200:
                 data = response.json()
@@ -123,6 +169,8 @@ class AuthService:
             return False, 'ارتباط با سرور برقرار نشد', None
         except requests.exceptions.Timeout:
             return False, 'زمان اتصال به سرور به پایان رسید', None
+        except requests.exceptions.ChunkedEncodingError:
+            return False, "اتصال ناپایدار بود. لطفاً دوباره تلاش کنید.", None
         except Exception as e:
             return False, f'خطا: {str(e)}', None
     
@@ -141,7 +189,12 @@ class AuthService:
         }
         
         try:
-            response = requests.post(url, json=payload, timeout=10)
+            response = self.session.post(
+                url,
+                json=payload,
+                headers=self._safe_headers(),
+                timeout=(5, 10),
+            )
             return response.status_code == 200
         except Exception:
             return False

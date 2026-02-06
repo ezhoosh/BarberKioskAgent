@@ -5,6 +5,8 @@ import json
 import logging
 from pathlib import Path
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,44 @@ DEFAULT_CONFIG = {
 CONFIG_DIR = Path.home() / '.barber_agent'
 CONFIG_FILE = CONFIG_DIR / 'config.json'
 CREDENTIALS_FILE = CONFIG_DIR / 'credentials.json'
+
+_SESSION: requests.Session | None = None
+
+
+def _get_session() -> requests.Session:
+    """
+    Shared retrying session for all agent HTTP calls.
+    Helps with intermittent 'IncompleteRead' / connection resets on Windows.
+    """
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.6,
+        status_forcelist=(502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"]),
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+    _SESSION = s
+    return s
+
+
+def _safe_headers() -> dict:
+    return {
+        "Connection": "close",
+        "Accept-Encoding": "identity",
+        "User-Agent": "BarberAgent/1.0",
+    }
 
 
 def ensure_config_dir():
@@ -107,7 +147,7 @@ def fetch_config_from_backend(backend_url: str) -> dict:
         api_url = f"{base_url}/api/hardware/agent-config/"
         
         logger.info(f"Fetching config from backend: {api_url}")
-        response = requests.get(api_url, timeout=10)
+        response = _get_session().get(api_url, headers=_safe_headers(), timeout=(5, 10))
         response.raise_for_status()
         
         data = response.json()
@@ -164,7 +204,7 @@ def fetch_terminal_config_from_backend(backend_url: str, terminal_id: int, auth_
         }
         
         logger.info(f"Fetching terminal config from backend: {api_url}")
-        response = requests.post(api_url, json=payload, timeout=10)
+        response = _get_session().post(api_url, json=payload, headers=_safe_headers(), timeout=(5, 10))
         response.raise_for_status()
         
         data = response.json()
