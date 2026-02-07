@@ -64,6 +64,7 @@ class RabbitMQClient:
         return pika.ConnectionParameters(
             host=self.config.get('rabbitmq_host', 'localhost'),
             port=self.config.get('rabbitmq_port', 5672),
+            virtual_host=self.config.get('rabbitmq_vhost', '/'),
             credentials=credentials,
             heartbeat=600,
             blocked_connection_timeout=300
