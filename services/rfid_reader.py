@@ -139,6 +139,10 @@ class RFIDReader:
         # self.hid_path: Optional[bytes] = None        # Current scan request
         self.current_scan_id: Optional[str] = None
         self.scan_callback: Optional[Callable[[str, str], None]] = None
+        # Windows keyboard-wedge scanners type characters into the OS input stream.
+        # We must avoid mixing normal user typing (e.g. phone input) with scanned card IDs.
+        # This flag lets `request_scan()` ask the reader thread to clear its local buffer.
+        self._reset_card_buffer_requested: bool = False
 
         # OLD SERIAL CODE PRESERVED FOR REFERENCE (NOT ACTIVE)
         # self.port: Optional[str] = None
@@ -422,6 +426,8 @@ class RFIDReader:
         self.current_scan_id = scan_id
         self.scan_callback = callback
         self.is_waiting_for_scan = True
+        # Clear any previously buffered keystrokes in the reader thread.
+        self._reset_card_buffer_requested = True
         logger.info(f"Waiting for card scan: {scan_id}")
 
     def cancel_scan(self):
@@ -429,6 +435,7 @@ class RFIDReader:
         self.is_waiting_for_scan = False
         self.current_scan_id = None
         self.scan_callback = None
+        self._reset_card_buffer_requested = True
         logger.info("Scan cancelled")
 
     def _read_loop(self):
@@ -441,6 +448,16 @@ class RFIDReader:
         def on_windows_key_event(event):
             """Callback for Windows keyboard events"""
             nonlocal card_buffer
+            # If a scan just started/cancelled, clear buffered chars first.
+            if self._reset_card_buffer_requested:
+                card_buffer = []
+                self._reset_card_buffer_requested = False
+
+            # IMPORTANT: only capture keystrokes while we are waiting for a scan.
+            # Otherwise, normal typing (e.g. phone/password) will pollute the buffer.
+            if not self.is_waiting_for_scan:
+                return
+
             if event.event_type == keyboard.KEY_DOWN:
                 if event.name == "enter":
                     if card_buffer:
@@ -501,6 +518,15 @@ class RFIDReader:
                         key_event = categorize(event)
                         # Only process key DOWN events
                         if key_event.keystate == key_event.key_down:
+                            # Clear buffer on scan start/cancel.
+                            if self._reset_card_buffer_requested:
+                                card_buffer = []
+                                self._reset_card_buffer_requested = False
+
+                            # Only capture while waiting for a scan.
+                            if not self.is_waiting_for_scan:
+                                continue
+
                             # Check for ENTER key - signals end of card data
                             if event.code == ecodes.KEY_ENTER:
                                 if card_buffer:
